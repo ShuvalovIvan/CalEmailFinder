@@ -1,0 +1,15 @@
+et_xmlfile==2.0.0
+greenlet==3.3.1
+numpy==2.4.1
+openpyxl==3.1.5
+pandas==3.0.0
+pandas-stubs==2.3.3.260113
+playwright==1.57.0
+pyee==13.0.0
+python-dateutil==2.9.0.post0
+six==1.17.0
+tkinterdnd2==0.4.3
+types-pytz==2025.2.0.20251108
+typing_extensions==4.15.0
+tzdata==2025.3
+xlsxwriter==3.2.9
