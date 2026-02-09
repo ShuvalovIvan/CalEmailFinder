@@ -2,7 +2,7 @@
 Data Mapper Application (Production Build).
 
 A Tkinter-based GUI for loading CSV/Excel files, performing threaded web scraping
-to extract contact info (including Job Titles), saving results with formatting,
+to extract contact info, saving results with formatting,
 and merging corrected data back.
 """
 
@@ -30,16 +30,20 @@ except ImportError:
     class MockScraper:
         """Mock scraper for testing when the real module is missing."""
 
+        def __init__(self):
+            self.current_url = "N/A"
+
         def find_principal_data(self, text: str) -> Dict[str, str]:
             """Simulate finding data with a delay."""
-            _ = text
+            # Simulate constructing a URL
+            self.current_url = f"https://www.cde.ca.gov/mock_search?q={text}"
+
             time.sleep(0.5)
             if "fail" in text.lower():
                 raise TimeoutError("Simulated Network Timeout")
             return {
                 "First Name": "MockFirst",
                 "Last Name": "MockLast",
-                "Job Title": "Principal",  # <-- ADDED
                 "Email": "mock@school.edu",
                 "Phone": "555-0199",
             }
@@ -58,8 +62,7 @@ RECOVERY_DATA_FILE = "_recovery_data.csv"
 RECOVERY_META_FILE = "_recovery_meta.json"
 WINDOW_SIZE = "1300x700"
 SIDEBAR_WIDTH = 250
-# UPDATED: Added "Job Title" to available fields
-AVAILABLE_FIELDS = ["First Name", "Last Name", "Job Title", "Email", "Phone"]
+AVAILABLE_FIELDS = ["First Name", "Last Name", "Email", "Phone", "Job Title"]
 
 
 class FieldMappingDialog(tk.Toplevel):
@@ -68,7 +71,7 @@ class FieldMappingDialog(tk.Toplevel):
     def __init__(self, parent: tk.Misc, current_columns: List[str]) -> None:
         super().__init__(parent)
         self.title("Map Extracted Data")
-        self.geometry("500x500")  # Increased height for extra field
+        self.geometry("500x500")
         self.transient(parent)
         self.grab_set()
 
@@ -608,118 +611,9 @@ class DataViewer(TkinterDnD.Tk):
         except Exception as e:
             messagebox.showerror("Merge Error", f"An error occurred during merge:\n{e}")
 
-    # --- UI & LOGIC ---
-    def copy_cell_content(self, event: Any) -> None:
-        region = self.tree.identify("region", event.x, event.y)
-        if region != "cell":
-            return
-        row_id, col_id = self.tree.identify_row(event.y), self.tree.identify_column(
-            event.x
-        )
-        if not row_id or not col_id:
-            return
-        col_index = int(col_id.replace("#", "")) - 1
-        vals = self.tree.item(row_id, "values")
-        if col_index < len(vals):
-            self.clipboard_clear()
-            self.clipboard_append(vals[col_index])
-            self.update()
-            self.lbl_status.config(text=f"Copied: '{str(vals[col_index])[:30]}...'")
-
-    def copy_column(self, col_name: str) -> None:
-        if self.df is None:
-            return
-        try:
-            self.df[col_name].to_clipboard(index=False, header=False)
-            self.lbl_status.config(text=f"Copied: {col_name}")
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
-
-    def on_horizontal_scroll(self, event: Any) -> str:
-        if event.delta:
-            self.tree.xview_scroll(int(-1 * (event.delta / 120) * 5), "units")
-        return "break"
-
-    def refresh_display(self) -> None:
-        self.tree.delete(*self.tree.get_children())
-        self.col_listbox.delete(0, tk.END)
-        self.tree["columns"] = []
-        if self.df is None:
-            return
-        cols = list(self.df.columns)
-        self.tree["columns"] = cols
-        font = tkfont.Font()
-        for i, col in enumerate(cols):
-            self.tree.heading(col, text=col, command=lambda c=col: self.copy_column(c))
-            mw = font.measure(str(col)) + 20
-            for val in self.df.iloc[:, i].fillna("").astype(str).head(50):
-                for line in str(val).split("\n"):
-                    w = font.measure(line) + 20
-                    if w > mw:
-                        mw = w
-            self.tree.column(col, width=min(mw, 600), stretch=False)
-            self.col_listbox.insert(tk.END, col)
-
-        # Row Height Logic
-        try:
-            mx = self.df.astype(str).apply(lambda x: x.str.count("\n").max()).max()
-            if pd.isna(mx):
-                mx = 0
-            ttk.Style().configure(
-                "Treeview", rowheight=25 + (min(int(mx + 1), 15) - 1) * 18
-            )
-        except:
-            pass
-
-        for row in self.df.fillna("").to_numpy().tolist():
-            self.tree.insert("", "end", values=row)
-
-    def delete_columns(self) -> None:
-        if self.df is None:
-            return
-        sel = [self.col_listbox.get(i) for i in self.col_listbox.curselection()]
-        if sel and messagebox.askyesno("Delete", f"Delete {len(sel)} cols?"):
-            self.df.drop(columns=sel, inplace=True)
-            self.refresh_display()
-
-    def move_column(self, direction: int) -> None:
-        if self.df is None:
-            return
-        sel = list(self.col_listbox.curselection())
-        if len(sel) != 1:
-            return
-        idx = sel[0]
-        cols = list(self.df.columns)
-        if (direction == -1 and idx == 0) or (direction == 1 and idx == len(cols) - 1):
-            return
-        nidx = idx + direction
-        cols[idx], cols[nidx] = cols[nidx], cols[idx]
-        self.df = self.df[cols]
-        self.refresh_display()
-        self.col_listbox.selection_set(nidx)
-        self.col_listbox.see(nidx)
-
-    def merge_columns(self) -> None:
-        if self.df is None:
-            return
-        sel = [self.col_listbox.get(i) for i in self.col_listbox.curselection()]
-        if not sel:
-            return
-        name = base = "+".join(sel)
-        c = 1
-        while name in self.df.columns:
-            name = f"{base}_{c}"
-            c += 1
-        try:
-            self.df[name] = self.df[sel].fillna("").astype(str).agg(" ".join, axis=1)
-            self.refresh_display()
-            messagebox.showinfo("Success", f"Created: {name}")
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
-
     # --- HELPER: CUSTOM ERROR DIALOG ---
     def ask_error_resolution(
-        self, row_num: int, error_msg: str, current_term: str
+        self, row_num: int, error_url: str, current_term: str
     ) -> None:
         """Launches a dialog to Retry (with edit), Skip, or Cancel."""
         dialog = tk.Toplevel(self)
@@ -732,10 +626,15 @@ class DataViewer(TkinterDnD.Tk):
             dialog, text=f"Error at Row {row_num}", font=("Arial", 12, "bold"), fg="red"
         ).pack(pady=10)
 
+        # UPDATED: Label is now "Last Visited URL" instead of generic error
+        tk.Label(
+            dialog, text="Last Visited URL (Timed Out):", font=("Arial", 9, "bold")
+        ).pack(anchor="w", padx=10)
+
         err_frame = tk.Frame(dialog, padx=10)
         err_frame.pack(fill=tk.BOTH, expand=True)
         text_w = tk.Text(err_frame, height=4, width=50, bg="#f0f0f0")
-        text_w.insert("1.0", error_msg)
+        text_w.insert("1.0", error_url)  # Insert URL here
         text_w.configure(state="disabled")
         text_w.pack()
 
@@ -840,11 +739,14 @@ class DataViewer(TkinterDnD.Tk):
                         self.msg_queue.put(("result", i, result_dict))
                         break
 
-                    except Exception as e:
-                        err_msg = str(e)
+                    except Exception as _:
+                        # Grab the last URL (or default message)
+                        last_url = getattr(scraper, "current_url", "URL Unknown")
+
                         self.pwin.paused.set()
+                        # Pass URL instead of e.message
                         self.msg_queue.put(
-                            ("network_error", i + 1, err_msg, current_search_term)
+                            ("network_error", i + 1, last_url, current_search_term)
                         )
 
                         while self.pwin.paused.is_set():

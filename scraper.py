@@ -31,7 +31,7 @@ class CDEScraper:
         self.playwright = sync_playwright().start()
 
         self.browser = self.playwright.chromium.launch(
-            headless=False, args=["--disable-blink-features=AutomationControlled"]
+            headless=True, args=["--disable-blink-features=AutomationControlled"]
         )
 
         self.context = self.browser.new_context(
@@ -137,7 +137,8 @@ class CDEScraper:
         try:
             # Regex for job titles
             job_titles_regex = re.compile(
-                r"Principal|Administrator|Director|Head|Superintendent", re.IGNORECASE
+                r"\b(Principal|Administrator|Director|Head|Superintendent)\b",
+                re.IGNORECASE,
             )
 
             candidates = page.get_by_text(job_titles_regex).all()
@@ -165,7 +166,7 @@ class CDEScraper:
                     title_index = -1
                     for i, line in enumerate(lines):
                         if re.search(
-                            r"^(Principal|Administrator|Director|Head|Superintendent)",
+                            r"(Principal|Administrator|Director|Head|Superintendent)",
                             line,
                             re.IGNORECASE,
                         ):
@@ -238,6 +239,8 @@ class CDEScraper:
             except Exception as e:
                 # Re-raise timeouts for the menu to catch
                 if "Timeout" in str(e) or "TargetClosed" in str(e):
+                    # Save the URL (or search page) that timed out so Menu can see it
+                    self.current_url = self.main_page.url
                     raise e
                 print("   [!] No results found.")
                 return result_data
@@ -260,6 +263,11 @@ class CDEScraper:
 
             for i, url in enumerate(target_urls):
                 print(f"   [{i+1}/{len(target_urls)}] Visiting: {url}")
+
+                # --- STEP 1: SAVE URL FOR MENU ---
+                self.current_url = url
+                # ---------------------------------
+
                 result_tab = self.context.new_page()
                 result_tab.on("download", lambda download: download.cancel())
 
@@ -282,7 +290,10 @@ class CDEScraper:
                         or "Connection refused" in str(e)
                     ):
                         result_tab.close()
-                        raise e  # Critical error for menu
+                        # --- STEP 2: RAISE ORIGINAL ERROR ---
+                        # We raise 'e' so the outer block knows it's a Timeout.
+                        # The menu will read 'self.current_url' separately.
+                        raise e
                     pass
 
                 finally:
