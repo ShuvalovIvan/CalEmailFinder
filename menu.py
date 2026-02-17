@@ -3,11 +3,17 @@ Data Mapper Application (Production Build).
 """
 
 import os
+import sys
+
+# --- CRITICAL FIX FOR PYINSTALLER ---
+# This forces Playwright to look for browsers in the standard user folder
+# instead of the temporary _MEI bundle created by the .exe.
+os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
+
 import time
 import json
 import threading
 import queue
-import sys
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import tkinter.font as tkfont
@@ -19,7 +25,7 @@ import pandas as pd
 import numpy as np
 
 
-# --- 1. ROBUST BROWSER CHECK (FIXED FOR FROZEN EXE) ---
+# --- 1. ROBUST BROWSER CHECK ---
 def ensure_browser_installed():
     """Checks for Playwright browsers and installs Chromium if missing."""
     # Skip check if we are using the Mock Scraper (dev mode)
@@ -27,7 +33,7 @@ def ensure_browser_installed():
         return
 
     try:
-        # 1. Try to launch a dummy browser to see if it exists
+        # 1. Try to launch a dummy browser to see if it works
         from playwright.sync_api import sync_playwright
 
         with sync_playwright() as p:
@@ -37,17 +43,16 @@ def ensure_browser_installed():
         try:
             print("Installing browser engine (first run only)...")
 
-            # FIX: We invoke the main function directly instead of using subprocess
-            # This works even when frozen in an .exe
+            # Import the internal CLI tool
             from playwright.__main__ import main as playwright_cli
 
-            # Save original arguments
+            # Save original arguments so we don't break the app
             original_argv = sys.argv
 
-            # Mock CLI arguments to trigger install
+            # Mock CLI arguments to trigger: "playwright install chromium"
             sys.argv = ["playwright", "install", "chromium"]
 
-            # Handle output for --noconsole builds (prevents crash on print)
+            # Redirect stdout/stderr to prevent crashes in --noconsole mode
             if sys.stdout is None:
                 sys.stdout = open(os.devnull, "w")
             if sys.stderr is None:
@@ -56,16 +61,17 @@ def ensure_browser_installed():
             try:
                 playwright_cli()
             except SystemExit:
-                # CLI tools exit when done; we catch this so the app keeps running
+                # The CLI tool tries to exit the script when done; we block that.
                 pass
             finally:
-                # Restore original arguments
+                # Restore the app's normal arguments
                 sys.argv = original_argv
 
         except Exception as e:
+            # We show the error but allow the app to open (user might fix it manually)
             messagebox.showerror(
-                "Setup Error",
-                f"Failed to install browser engine automatically.\n\nError: {e}",
+                "Setup Warning",
+                f"Could not auto-install browser.\n\nError: {e}\n\nTry running this command in terminal:\nplaywright install chromium",
             )
 
 
