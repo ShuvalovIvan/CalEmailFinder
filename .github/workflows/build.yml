@@ -1,0 +1,47 @@
+name: Build Executables
+
+# Trigger on push to main or manual button click
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        # Build for both Windows and Mac simultaneously
+        os: [windows-latest, macos-latest]
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11' 
+        cache: 'pip' # Caches dependencies to make subsequent builds faster
+
+    - name: Install Dependencies
+      run: |
+        pip install pandas openpyxl xlsxwriter tkinterdnd2-universal playwright pyinstaller
+        playwright install chromium
+
+    - name: Build with PyInstaller (Mac)
+      if: runner.os == 'macOS'
+      run: |
+        pyinstaller --noconsole --onefile --name "DataMapper_Mac" --collect-all tkinterdnd2 menu.py
+
+    - name: Build with PyInstaller (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        pyinstaller --noconsole --onefile --name "DataMapper_Win" --collect-all tkinterdnd2 menu.py
+
+    - name: Upload Artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: DataMapper-${{ runner.os }}
+        path: dist/
