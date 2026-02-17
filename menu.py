@@ -7,7 +7,6 @@ import time
 import json
 import threading
 import queue
-import subprocess
 import sys
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -20,26 +19,53 @@ import pandas as pd
 import numpy as np
 
 
-# --- 1. ROBUST BROWSER CHECK ---
+# --- 1. ROBUST BROWSER CHECK (FIXED FOR FROZEN EXE) ---
 def ensure_browser_installed():
     """Checks for Playwright browsers and installs Chromium if missing."""
+    # Skip check if we are using the Mock Scraper (dev mode)
+    if "MockScraper" in str(sc):
+        return
+
     try:
-        # Try to launch a dummy browser to see if it exists
+        # 1. Try to launch a dummy browser to see if it exists
         from playwright.sync_api import sync_playwright
 
         with sync_playwright() as p:
             p.chromium.launch(headless=True).close()
     except Exception:
-        # If launch fails, try to install
+        # 2. If launch fails, try to install internally
         try:
             print("Installing browser engine (first run only)...")
-            # FIX: Use sys.executable to ensure we use the correct python environment
-            subprocess.check_call(
-                [sys.executable, "-m", "playwright", "install", "chromium"]
-            )
+
+            # FIX: We invoke the main function directly instead of using subprocess
+            # This works even when frozen in an .exe
+            from playwright.__main__ import main as playwright_cli
+
+            # Save original arguments
+            original_argv = sys.argv
+
+            # Mock CLI arguments to trigger install
+            sys.argv = ["playwright", "install", "chromium"]
+
+            # Handle output for --noconsole builds (prevents crash on print)
+            if sys.stdout is None:
+                sys.stdout = open(os.devnull, "w")
+            if sys.stderr is None:
+                sys.stderr = open(os.devnull, "w")
+
+            try:
+                playwright_cli()
+            except SystemExit:
+                # CLI tools exit when done; we catch this so the app keeps running
+                pass
+            finally:
+                # Restore original arguments
+                sys.argv = original_argv
+
         except Exception as e:
             messagebox.showerror(
-                "Setup Error", f"Failed to install browser engine:\n{e}"
+                "Setup Error",
+                f"Failed to install browser engine automatically.\n\nError: {e}",
             )
 
 
