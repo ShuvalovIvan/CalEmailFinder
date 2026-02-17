@@ -1,69 +1,58 @@
 """
 Data Mapper Application (Production Build).
-
-A Tkinter-based GUI for loading CSV/Excel files, performing threaded web scraping
-to extract contact info, saving results with formatting,
-and merging corrected data back.
 """
 
-import subprocess
-import sys
 import os
 import time
 import json
 import threading
 import queue
+import subprocess
+import sys
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, simpledialog
+from tkinter import ttk, filedialog, messagebox
 import tkinter.font as tkfont
 from typing import List, Optional, Any, Dict
 
 # Third-party imports
-# pylint: disable=import-error
 from tkinterdnd2 import DND_FILES, TkinterDnD  # type: ignore
 import pandas as pd
 import numpy as np
 
 
+# --- 1. ROBUST BROWSER CHECK ---
 def ensure_browser_installed():
     """Checks for Playwright browsers and installs Chromium if missing."""
-    # Only run this check if we are NOT using the MockScraper
-    if "MockScraper" in str(sc):
-        return
-
     try:
-        # Try to launch a dummy browser instance to see if it exists
+        # Try to launch a dummy browser to see if it exists
         from playwright.sync_api import sync_playwright
 
         with sync_playwright() as p:
             p.chromium.launch(headless=True).close()
     except Exception:
-        # If launch fails, assume missing and try to install
+        # If launch fails, try to install
         try:
             print("Installing browser engine (first run only)...")
-            if sys.platform == "win32":
-                subprocess.run("playwright install chromium", shell=True, check=True)
-            else:
-                subprocess.run(["playwright", "install", "chromium"], check=True)
+            # FIX: Use sys.executable to ensure we use the correct python environment
+            subprocess.check_call(
+                [sys.executable, "-m", "playwright", "install", "chromium"]
+            )
         except Exception as e:
             messagebox.showerror(
                 "Setup Error", f"Failed to install browser engine:\n{e}"
             )
 
 
-# Try to import scraper, provide dummy if missing
+# --- 2. SCRAPER IMPORT / MOCK ---
 try:
     import scraper as sc  # type: ignore
 except ImportError:
 
     class MockScraper:
-        """Mock scraper for testing when the real module is missing."""
-
         def __init__(self):
             self.current_url = "N/A"
 
         def find_principal_data(self, text: str) -> Dict[str, str]:
-            """Simulate finding data with a delay."""
             self.current_url = f"https://www.cde.ca.gov/mock_search?q={text}"
             time.sleep(0.5)
             if "fail" in text.lower():
@@ -82,10 +71,10 @@ except ImportError:
     class ScraperWrapper:
         CDEScraper = MockScraper
 
-    sc = ScraperWrapper()  # type: ignore
+    sc = ScraperWrapper()
 
 
-# Constants
+# --- 3. CONSTANTS ---
 RECOVERY_DATA_FILE = "_recovery_data.csv"
 RECOVERY_META_FILE = "_recovery_meta.json"
 WINDOW_SIZE = "1300x700"
@@ -93,16 +82,16 @@ SIDEBAR_WIDTH = 250
 AVAILABLE_FIELDS = ["First Name", "Last Name", "Job Title", "Email", "Phone"]
 
 
-class FieldMappingDialog(tk.Toplevel):
-    """Dialog to map scraper outputs to DataFrame columns."""
+# --- 4. GUI CLASSES ---
 
+
+class FieldMappingDialog(tk.Toplevel):
     def __init__(self, parent: tk.Misc, current_columns: List[str]) -> None:
         super().__init__(parent)
         self.title("Map Extracted Data")
         self.geometry("500x500")
         self.transient(parent)
         self.grab_set()
-
         self.column_map: Dict[str, str] = {}
         self.cancelled = True
         self._setup_ui(current_columns)
@@ -162,8 +151,6 @@ class FieldMappingDialog(tk.Toplevel):
 
 
 class ProgressWindow(tk.Toplevel):
-    """Popup window with Progress Bar, Pause, and Save/Quit."""
-
     def __init__(
         self,
         parent: tk.Misc,
@@ -191,14 +178,12 @@ class ProgressWindow(tk.Toplevel):
 
         self.lbl_status = tk.Label(frame, text="Starting...", anchor="w")
         self.lbl_status.pack(fill=tk.X, pady=(0, 5))
-
         self.progress = ttk.Progressbar(
             frame, orient="horizontal", length=300, mode="determinate"
         )
         self.progress.pack(fill=tk.X, pady=5)
         self.progress["maximum"] = total
         self.progress["value"] = start_val
-
         self.lbl_count = tk.Label(frame, text=f"{start_val} / {total}", fg="gray")
         self.lbl_count.pack(pady=2)
 
@@ -250,8 +235,6 @@ class ProgressWindow(tk.Toplevel):
 
 
 class DataViewer(TkinterDnD.Tk):
-    """Main Application Class."""
-
     def __init__(self) -> None:
         super().__init__()
         self.title("Data Mapper App")
@@ -289,15 +272,12 @@ class DataViewer(TkinterDnD.Tk):
             command=self.export_failed_rows,
             bg="#fff0f0",
         ).pack(side=tk.LEFT, padx=10)
-
-        # Merge Back Button
         tk.Button(
             top_frame,
             text="Merge Fixed Data",
             command=self.merge_back_data,
             bg="#e6f3ff",
         ).pack(side=tk.LEFT, padx=10)
-
         self.lbl_status = tk.Label(
             top_frame, text="Drag & Drop a CSV or XLSX file here", fg="gray"
         )
@@ -447,10 +427,8 @@ class DataViewer(TkinterDnD.Tk):
         popup.grab_set()
         tk.Label(popup, text=prompt).pack(pady=10)
         selected = tk.StringVar()
-
         target_df = df_to_use if df_to_use is not None else self.df
         cols = list(target_df.columns) if target_df is not None else []
-
         combo = ttk.Combobox(
             popup, textvariable=selected, values=cols, state="readonly"
         )
@@ -546,19 +524,17 @@ class DataViewer(TkinterDnD.Tk):
             failed_df.to_csv(fp, index=False)
             messagebox.showinfo("Success", f"Exported {len(failed_df)} rows.")
 
-    # --- MERGE BACK LOGIC ---
+    # --- MERGE BACK ---
     def merge_back_data(self) -> None:
         if self.df is None:
             messagebox.showwarning("Error", "Please load your MAIN/MASTER file first.")
             return
-
         fp = filedialog.askopenfilename(
             title="Select the Fixed/Retried CSV file",
             filetypes=[("CSV Files", "*.csv"), ("Excel Files", "*.xlsx;*.xls")],
         )
         if not fp:
             return
-
         try:
             if fp.endswith(".csv"):
                 fixed_df = pd.read_csv(fp)
@@ -573,21 +549,17 @@ class DataViewer(TkinterDnD.Tk):
         )
         if not key_col:
             return
-
         if key_col not in fixed_df.columns:
             messagebox.showerror(
                 "Error", f"Key column '{key_col}' not found in the fixed file."
             )
             return
-
         shared_columns = [
             col for col in fixed_df.columns if col in self.df.columns and col != key_col
         ]
-
         if not shared_columns:
             messagebox.showwarning("Merge Error", "No matching data columns found!")
             return
-
         confirm_msg = (
             f"Found {len(shared_columns)} columns to update:\n\n"
             + ", ".join(shared_columns)
@@ -599,16 +571,12 @@ class DataViewer(TkinterDnD.Tk):
         try:
             self.df[key_col] = self.df[key_col].astype(str)
             fixed_df[key_col] = fixed_df[key_col].astype(str)
-
             for col in shared_columns:
                 self.df[col] = self.df[col].astype(object)
-
             rows_updated = 0
-
             for index, fixed_row in fixed_df.iterrows():
                 key_val = fixed_row[key_col]
                 mask = self.df[key_col] == key_val
-
                 if mask.any():
                     row_has_updates = False
                     for col in shared_columns:
@@ -624,16 +592,111 @@ class DataViewer(TkinterDnD.Tk):
                             row_has_updates = True
                     if row_has_updates:
                         rows_updated += 1
-
             self.refresh_display()
             messagebox.showinfo(
                 "Merge Complete", f"Successfully updated {rows_updated} rows."
             )
-
         except Exception as e:
             messagebox.showerror("Merge Error", f"An error occurred during merge:\n{e}")
 
-    # --- UI & LOGIC ---
+    # --- ERROR DIALOG ---
+    def ask_error_resolution(
+        self, row_num: int, error_url: str, current_term: str
+    ) -> None:
+        dialog = tk.Toplevel(self)
+        dialog.title("Connection Error Resolution")
+        dialog.geometry("500x350")
+        dialog.transient(self)
+        dialog.grab_set()
+        tk.Label(
+            dialog, text=f"Error at Row {row_num}", font=("Arial", 12, "bold"), fg="red"
+        ).pack(pady=10)
+        tk.Label(
+            dialog, text="Last Visited URL (Timed Out):", font=("Arial", 9, "bold")
+        ).pack(anchor="w", padx=10)
+        err_frame = tk.Frame(dialog, padx=10)
+        err_frame.pack(fill=tk.BOTH, expand=True)
+        text_w = tk.Text(err_frame, height=4, width=50, bg="#f0f0f0")
+        text_w.insert("1.0", error_url)
+        text_w.configure(state="disabled")
+        text_w.pack()
+        tk.Label(dialog, text="Search Term Used:", font=("Arial", 10, "bold")).pack(
+            pady=(10, 5)
+        )
+        term_var = tk.StringVar(value=current_term)
+        entry = tk.Entry(dialog, textvariable=term_var, width=50, font=("Arial", 11))
+        entry.pack(pady=5)
+        btn_frame = tk.Frame(dialog, pady=20)
+        btn_frame.pack(fill=tk.X)
+
+        def on_retry():
+            self.thread_decision = {"action": "retry", "new_term": term_var.get()}
+            dialog.destroy()
+
+        def on_skip():
+            self.thread_decision = {"action": "skip", "new_term": None}
+            dialog.destroy()
+
+        def on_cancel():
+            self.thread_decision = {"action": "cancel", "new_term": None}
+            dialog.destroy()
+
+        tk.Button(btn_frame, text="Skip Row", command=on_skip, width=12).pack(
+            side=tk.LEFT, padx=20
+        )
+        tk.Button(
+            btn_frame, text="Retry", command=on_retry, bg="#e6ffe6", width=12
+        ).pack(side=tk.LEFT, padx=10)
+        tk.Button(
+            btn_frame, text="Stop Process", command=on_cancel, bg="#ffe6e6", width=12
+        ).pack(side=tk.RIGHT, padx=20)
+        dialog.protocol("WM_DELETE_WINDOW", on_cancel)
+        self.wait_window(dialog)
+
+    # --- COLUMN OPERATIONS (INDENTED CORRECTLY) ---
+    def delete_columns(self) -> None:
+        if self.df is None:
+            return
+        sel = [self.col_listbox.get(i) for i in self.col_listbox.curselection()]
+        if sel and messagebox.askyesno("Delete", f"Delete {len(sel)} cols?"):
+            self.df.drop(columns=sel, inplace=True)
+            self.refresh_display()
+
+    def move_column(self, direction: int) -> None:
+        if self.df is None:
+            return
+        sel = list(self.col_listbox.curselection())
+        if len(sel) != 1:
+            return
+        idx = sel[0]
+        cols = list(self.df.columns)
+        if (direction == -1 and idx == 0) or (direction == 1 and idx == len(cols) - 1):
+            return
+        nidx = idx + direction
+        cols[idx], cols[nidx] = cols[nidx], cols[idx]
+        self.df = self.df[cols]
+        self.refresh_display()
+        self.col_listbox.selection_set(nidx)
+        self.col_listbox.see(nidx)
+
+    def merge_columns(self) -> None:
+        if self.df is None:
+            return
+        sel = [self.col_listbox.get(i) for i in self.col_listbox.curselection()]
+        if not sel:
+            return
+        name = base = "+".join(sel)
+        c = 1
+        while name in self.df.columns:
+            name = f"{base}_{c}"
+            c += 1
+        try:
+            self.df[name] = self.df[sel].fillna("").astype(str).agg(" ".join, axis=1)
+            self.refresh_display()
+            messagebox.showinfo("Success", f"Created: {name}")
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+
     def copy_cell_content(self, event: Any) -> None:
         region = self.tree.identify("region", event.x, event.y)
         if region != "cell":
@@ -680,11 +743,9 @@ class DataViewer(TkinterDnD.Tk):
             for val in self.df.iloc[:, i].fillna("").astype(str).head(50):
                 for line in str(val).split("\n"):
                     w = font.measure(line) + 20
-                    if w > mw:
-                        mw = w
+                    mw = max(mw, w)
             self.tree.column(col, width=min(mw, 600), stretch=False)
             self.col_listbox.insert(tk.END, col)
-
         try:
             mx = self.df.astype(str).apply(lambda x: x.str.count("\n").max()).max()
             if pd.isna(mx):
@@ -694,114 +755,10 @@ class DataViewer(TkinterDnD.Tk):
             )
         except:
             pass
-
         for row in self.df.fillna("").to_numpy().tolist():
             self.tree.insert("", "end", values=row)
 
-    def delete_columns(self) -> None:
-        if self.df is None:
-            return
-        sel = [self.col_listbox.get(i) for i in self.col_listbox.curselection()]
-        if sel and messagebox.askyesno("Delete", f"Delete {len(sel)} cols?"):
-            self.df.drop(columns=sel, inplace=True)
-            self.refresh_display()
-
-    def move_column(self, direction: int) -> None:
-        if self.df is None:
-            return
-        sel = list(self.col_listbox.curselection())
-        if len(sel) != 1:
-            return
-        idx = sel[0]
-        cols = list(self.df.columns)
-        if (direction == -1 and idx == 0) or (direction == 1 and idx == len(cols) - 1):
-            return
-        nidx = idx + direction
-        cols[idx], cols[nidx] = cols[nidx], cols[idx]
-        self.df = self.df[cols]
-        self.refresh_display()
-        self.col_listbox.selection_set(nidx)
-        self.col_listbox.see(nidx)
-
-    def merge_columns(self) -> None:
-        if self.df is None:
-            return
-        sel = [self.col_listbox.get(i) for i in self.col_listbox.curselection()]
-        if not sel:
-            return
-        name = base = "+".join(sel)
-        c = 1
-        while name in self.df.columns:
-            name = f"{base}_{c}"
-            c += 1
-        try:
-            self.df[name] = self.df[sel].fillna("").astype(str).agg(" ".join, axis=1)
-            self.refresh_display()
-            messagebox.showinfo("Success", f"Created: {name}")
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
-
-    # --- HELPER: CUSTOM ERROR DIALOG ---
-    def ask_error_resolution(
-        self, row_num: int, error_url: str, current_term: str
-    ) -> None:
-        dialog = tk.Toplevel(self)
-        dialog.title("Connection Error Resolution")
-        dialog.geometry("500x350")
-        dialog.transient(self)
-        dialog.grab_set()
-
-        tk.Label(
-            dialog, text=f"Error at Row {row_num}", font=("Arial", 12, "bold"), fg="red"
-        ).pack(pady=10)
-
-        tk.Label(
-            dialog, text="Last Visited URL (Timed Out):", font=("Arial", 9, "bold")
-        ).pack(anchor="w", padx=10)
-
-        err_frame = tk.Frame(dialog, padx=10)
-        err_frame.pack(fill=tk.BOTH, expand=True)
-        text_w = tk.Text(err_frame, height=4, width=50, bg="#f0f0f0")
-        text_w.insert("1.0", error_url)
-        text_w.configure(state="disabled")
-        text_w.pack()
-
-        tk.Label(dialog, text="Search Term Used:", font=("Arial", 10, "bold")).pack(
-            pady=(10, 5)
-        )
-        term_var = tk.StringVar(value=current_term)
-        entry = tk.Entry(dialog, textvariable=term_var, width=50, font=("Arial", 11))
-        entry.pack(pady=5)
-
-        btn_frame = tk.Frame(dialog, pady=20)
-        btn_frame.pack(fill=tk.X)
-
-        def on_retry():
-            self.thread_decision = {"action": "retry", "new_term": term_var.get()}
-            dialog.destroy()
-
-        def on_skip():
-            self.thread_decision = {"action": "skip", "new_term": None}
-            dialog.destroy()
-
-        def on_cancel():
-            self.thread_decision = {"action": "cancel", "new_term": None}
-            dialog.destroy()
-
-        tk.Button(btn_frame, text="Skip Row", command=on_skip, width=12).pack(
-            side=tk.LEFT, padx=20
-        )
-        tk.Button(
-            btn_frame, text="Retry", command=on_retry, bg="#e6ffe6", width=12
-        ).pack(side=tk.LEFT, padx=10)
-        tk.Button(
-            btn_frame, text="Stop Process", command=on_cancel, bg="#ffe6e6", width=12
-        ).pack(side=tk.RIGHT, padx=20)
-
-        dialog.protocol("WM_DELETE_WINDOW", on_cancel)
-        self.wait_window(dialog)
-
-    # --- EXTRACTION LOGIC ---
+    # --- EXTRACTION ---
     def extract_info(self) -> None:
         if self.df is None:
             return
@@ -810,18 +767,15 @@ class DataViewer(TkinterDnD.Tk):
             messagebox.showwarning("Error", "Select exactly ONE source column.")
             return
         source = self.col_listbox.get(sel[0])
-
         dialog = FieldMappingDialog(self, list(self.df.columns))
         self.wait_window(dialog)
         if dialog.cancelled:
             return
         column_map = dialog.column_map
-
         for target in column_map.values():
             if target not in self.df.columns:
                 self.df[target] = ""
             self.df[target] = self.df[target].astype(object)
-
         self.refresh_display()
         self.run_extraction_thread(source, column_map, 0)
 
@@ -859,32 +813,24 @@ class DataViewer(TkinterDnD.Tk):
                         return
 
                 current_search_term = input_data[i]
-
                 while True:
                     try:
                         result_dict = scraper.find_principal_data(current_search_term)
                         self.msg_queue.put(("result", i, result_dict))
                         break
-
                     except Exception as e:
-                        # Grab the last URL (or default message)
                         last_url = getattr(scraper, "current_url", "URL Unknown")
-
                         self.pwin.paused.set()
                         self.msg_queue.put(
                             ("network_error", i + 1, last_url, current_search_term)
                         )
-
                         while self.pwin.paused.is_set():
                             time.sleep(0.1)
                             if self.pwin.cancelled.is_set():
                                 break
-
                         if self.pwin.cancelled.is_set():
                             break
-
                         decision = self.thread_decision.copy()
-
                         if decision.get("action") == "skip":
                             self.msg_queue.put(("result", i, {}))
                             break
@@ -900,7 +846,6 @@ class DataViewer(TkinterDnD.Tk):
                 if self.pwin.cancelled.is_set():
                     self.msg_queue.put(("cancelled",))
                     break
-
                 if i % 10 == 0:
                     self.msg_queue.put(("autosave", i + 1, source_col, column_map))
 
@@ -908,7 +853,6 @@ class DataViewer(TkinterDnD.Tk):
                 scraper.close()
             except:
                 pass
-
             if (
                 not self.pwin.cancelled.is_set()
                 and not self.pwin.save_and_quit.is_set()
@@ -923,7 +867,6 @@ class DataViewer(TkinterDnD.Tk):
             while True:
                 msg = self.msg_queue.get_nowait()
                 mtype = msg[0]
-
                 if mtype == "result":
                     idx, res = msg[1], msg[2]
                     for field, target in column_map.items():
@@ -934,17 +877,16 @@ class DataViewer(TkinterDnD.Tk):
                         if idx < len(children):
                             vals = list(self.tree.item(children[idx], "values"))
                             for field, target in column_map.items():
-                                cidx = self.df.columns.get_loc(target)
-                                vals[cidx] = res.get(field, "")
+                                vals[self.df.columns.get_loc(target)] = res.get(
+                                    field, ""
+                                )
                             self.tree.item(children[idx], values=vals)
-
                 elif mtype == "network_error":
                     row_num, err_text, term = msg[1], msg[2], msg[3]
                     self.pwin.lbl_status.config(text="⚠ Error - Waiting for input...")
                     self.pwin.btn_pause.config(text="Resume", bg="#e6ffe6")
                     self.ask_error_resolution(row_num, err_text, term)
                     self.pwin.toggle_pause()
-
                 elif mtype == "error":
                     self.pwin.destroy()
                     messagebox.showerror("Error", msg[1])
@@ -968,7 +910,6 @@ class DataViewer(TkinterDnD.Tk):
                     return
         except queue.Empty:
             pass
-
         if hasattr(self, "pwin") and self.pwin.winfo_exists():
             self.after(100, self.monitor_queue, column_map)
 
