@@ -16,12 +16,12 @@ It replaces manual searching with an automated, threaded process that includes:
 **No Python installation is required** if you are using the pre-built executables.
 
 ### **Windows Users**
-1.  Navigate to the `dist/windows` folder.
+1.  Download the **`DataMapper.exe`** file frome Release.
 2.  Double-click **`DataMapper.exe`**.
 3.  *Note:* On the very first launch, a command window may appear briefly. This is the app ensuring the necessary browser engine is installed.
 
 ### **Mac Users**
-1.  Navigate to the `dist/mac` folder.
+1.  Download the **`DataMapper`** file frome Release.
 2.  Double-click the **`DataMapper`** file.
 3.  *Troubleshooting:* If you see an "Unidentified Developer" warning:
     * Right-click (or Control+Click) the file.
